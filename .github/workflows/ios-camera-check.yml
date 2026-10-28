@@ -1,0 +1,54 @@
+name: iOS Camera compile check (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-camera-test]
+    paths:
+      - ios_app/**
+      - scripts/build_ios_camera.sh
+      - scripts/package_ios_camera_ipa.py
+      - tests/test_ios_camera*
+      - tests/test_ios_password_autofill.py
+      - .github/workflows/ios-camera-check.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-camera-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Record Apple toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Verify project and bundled lifecycle
+        run: |
+          python3 -m unittest discover -s tests -p 'test_ios_*' -v
+          node tests/test_ios_camera_lifecycle.js
+      - name: Test HTTPS origin and download policies
+        run: swift test --package-path ios_app/CameraCore
+      - name: Compile iPhone Simulator app without signing
+        run: sh scripts/build_ios_camera.sh simulator
+      - name: Compile iPhone device app without signing
+        run: sh scripts/build_ios_camera.sh device-check
+      - name: Package unsigned app for local personal signing
+        run: python3 scripts/package_ios_camera_ipa.py
+      - name: Retain unsigned input and its integrity manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniBridge-Camera-UNSIGNED-resign-required
+          path: |
+            artifacts/ios/*-UNSIGNED-resign-required.ipa
+            artifacts/ios/*-UNSIGNED-resign-required.json
+          if-no-files-found: error
+          retention-days: 7
